@@ -165,8 +165,14 @@ static ssize_t write_scheduler_time(struct bt_conn *conn, const struct bt_gatt_a
 
 void check_scheduler(void) {
     printk("Here I should check the time!\n");
+    if(scheduler_onoff == 0) {
+        printk("Time scheduler switched off\n");
+        return;
+    }
     int minutes = scheduler_onoff & 0xff;
-    int hours = (scheduler_onoff & 0xff00) >> 2;
+    int hours = (scheduler_onoff & 0xff00) >> 8;
+    int brightness = (scheduler_onoff & 0xff0000) >> 16;
+    printk("DEBUG: brightness: %d, hours: %d, minutes: %d\n", brightness, hours, minutes);
     int hours_passed = (_sys_clock_tick_count/sys_clock_ticks_per_sec - seconds_before_sheduler_update)/3600;
     int minutes_passed = ((_sys_clock_tick_count/sys_clock_ticks_per_sec - seconds_before_sheduler_update) - hours*3600)/60;
     hours+=hours_passed;
@@ -177,9 +183,15 @@ void check_scheduler(void) {
     }
     if(hours>24) hours = 0;
 
+    int start_min = start_time & 0xff;
+    int start_hour = (start_time & 0xff00) >> 8;
+    int end_min = end_time & 0xff;
+    int end_hour = (end_time & 0xff00) >> 8;
+
     printk("Local time: %dH %dM\n", hours, minutes);
+    printk("Should set brightness to level: %d%\n", brightness);
     printk("Seconds after start: %d\n", (int)(_sys_clock_tick_count/sys_clock_ticks_per_sec));
-    printk("Scheduler: %d, start: %d -> end: %d\n", scheduler_onoff, start_time, end_time);
+    printk("Scheduler: %d, start: %d:%d -> end: %d:%d\n", scheduler_onoff, start_hour, start_min, end_hour, end_min);
 }
 
 
