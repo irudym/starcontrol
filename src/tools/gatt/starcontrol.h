@@ -26,6 +26,12 @@ static int scheduler_onoff = 0;
 static int start_time = 0x1800;
 static int end_time = 0x1800;
 
+//MCU local time
+static int local_hours = 0;
+static int local_minutes = 0;
+
+static bool star_active = false;
+
 static int64_t seconds_before_sheduler_update = 0;
 extern void starcontrol_init(void);
 extern void check_scheduler(void);

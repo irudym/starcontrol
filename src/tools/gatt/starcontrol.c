@@ -149,9 +149,33 @@ static ssize_t read_scheduler_time(struct bt_conn *conn, const struct bt_gatt_at
                              sizeof(scheduler_onoff));
 }
 
-static ssize_t write_scheduler_time(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+static ssize_t write_scheduler_onoff(struct bt_conn *conn, const struct bt_gatt_attr *attr,
                                const void *buf, uint16_t len, uint16_t offset,
                                uint8_t flags)
+{
+    uint8_t *value = attr->user_data;
+
+    if (offset + len > sizeof(scheduler_onoff)) {
+        return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
+    }
+
+    memcpy(value + offset, buf, len);
+
+    //set local time
+    local_minutes = scheduler_onoff & 0xff;
+    local_hours = (scheduler_onoff & 0xff00) >> 8;
+    seconds_before_sheduler_update = _sys_clock_tick_count/sys_clock_ticks_per_sec;
+
+    int brightness = (scheduler_onoff & 0xff0000) >> 16;
+    printk("DEBUG: brightness: %d, hours: %d, minutes: %d\n", brightness, local_hours, local_minutes);
+
+    return len;
+}
+
+
+static ssize_t write_scheduler_time(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+                                    const void *buf, uint16_t len, uint16_t offset,
+                                    uint8_t flags)
 {
     uint8_t *value = attr->user_data;
 
@@ -163,25 +187,30 @@ static ssize_t write_scheduler_time(struct bt_conn *conn, const struct bt_gatt_a
     return len;
 }
 
+
 void check_scheduler(void) {
     printk("Here I should check the time!\n");
     if(scheduler_onoff == 0) {
         printk("Time scheduler switched off\n");
         return;
     }
-    int minutes = scheduler_onoff & 0xff;
-    int hours = (scheduler_onoff & 0xff00) >> 8;
+
+    //seconds passed after last update
+    int64_t seconds_since_update = _sys_clock_tick_count/sys_clock_ticks_per_sec - seconds_before_sheduler_update;
+
+    int hours_passed = seconds_since_update/3600;
+    int minutes_passed = (int)((seconds_since_update - hours_passed * 3600) / 60);
+
+
     int brightness = (scheduler_onoff & 0xff0000) >> 16;
-    printk("DEBUG: brightness: %d, hours: %d, minutes: %d\n", brightness, hours, minutes);
-    int hours_passed = (_sys_clock_tick_count/sys_clock_ticks_per_sec - seconds_before_sheduler_update)/3600;
-    int minutes_passed = ((_sys_clock_tick_count/sys_clock_ticks_per_sec - seconds_before_sheduler_update) - hours*3600)/60;
-    hours+=hours_passed;
-    minutes+=minutes_passed;
-    if(minutes>60) {
+
+    int hours = local_hours + hours_passed;
+    int minutes = local_minutes + minutes_passed;
+    if(minutes > 60) {
         hours++;
-        minutes-=60;
+        minutes -= 60;
     }
-    if(hours>24) hours = 0;
+    if(hours>24) hours = hours%24;
 
     int start_min = start_time & 0xff;
     int start_hour = (start_time & 0xff00) >> 8;
@@ -192,6 +221,23 @@ void check_scheduler(void) {
     printk("Should set brightness to level: %d%\n", brightness);
     printk("Seconds after start: %d\n", (int)(_sys_clock_tick_count/sys_clock_ticks_per_sec));
     printk("Scheduler: %d, start: %d:%d -> end: %d:%d\n", scheduler_onoff, start_hour, start_min, end_hour, end_min);
+
+
+    //in case start_time == end_time the light will blink which could be a feature :)
+    if(!star_active) {
+        if(hours == start_hour && minutes == start_min) {
+            star_active = true;
+            pwm_pin_set_duty_cycle(pwm_dev, 0, brightness);
+            printk("Switch light on\n");
+            //TODO: return here may fix the "feature"
+        }
+    } else {
+        if(hours == end_hour && minutes == end_min) {
+            star_active = false;
+            pwm_pin_set_duty_cycle(pwm_dev, 0, 0);
+            printk("Switch light off\n");
+        }
+    }
 }
 
 
@@ -207,7 +253,7 @@ static struct bt_gatt_attr starcontrol_attrs[] = {
                                BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE),
         BT_GATT_DESCRIPTOR(&starcontrol_scheduler_signed_uuid.uuid,
                            BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-                           read_scheduler, write_scheduler, &scheduler_onoff),
+                           read_scheduler, write_scheduler_onoff, &scheduler_onoff),
         BT_GATT_CHARACTERISTIC(&starcontrol_starttime_uuid.uuid,
                                BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE),
         BT_GATT_DESCRIPTOR(&starcontrol_starttime_signed_uuid.uuid,
